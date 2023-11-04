@@ -355,9 +355,7 @@ def add_weather_data(
 
 	print(data.head())
 
-	data.to_csv(
-		"ar41_for_ulb_dropped_with_weather_pollen.csv", delimiter=";", index=False
-	)
+	data.to_csv("ar41_with_weather.csv", sep=";", index=False)
 
 
 if __name__ == "__main__":
