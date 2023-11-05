@@ -313,6 +313,7 @@ def add_weather_data(
 		data[column] = None
 
 	weather_data_folder = Path("weather_data")
+	pollen_types = ["alder_pollen", "birch_pollen", "grass_pollen", "mugwort_pollen", "olive_pollen", "ragweed_pollen"]
 
 	for date in date_list:
 		date = date.split("T")[0]
@@ -321,17 +322,29 @@ def add_weather_data(
 		)  # get data from weather_data_folder
 		file = open(pollen_data_filename)
 		pollen_date = json.load(file)
+		pollen_date_hours_dict = {}
+		
+		hourly_data = pollen_date['hourly']
+
+		hourly_sums = [0] * 24
+
+		for hour in range(24):
+			for pollen_type in pollen_types:
+				value = hourly_data[pollen_type][hour]
+				if value is not None:
+					hourly_sums[hour] += value
+		pollen_date_hours_dict[date] = hourly_sums
 
 		weather_data_filename = weather_data_folder / (date + "weather.json")
 		file = open(weather_data_filename)
 		weather_date = json.load(file)
 
-		sub_data = data.loc[
-			data["timestamps_UTC"].apply(lambda x: str(x.date()) == date)
-		]
+		print(f"Current date {date}")
+		sub_data = data.loc[date]
+		print(f"Sub data according to data \n{sub_data}")
+
 		for index in sub_data.index.to_list():
-			row = data.iloc[index]
-			sub_data_hour_index = row["timestamps_UTC"].hour
+			sub_data_hour_index = index.hour
 			data.loc[index, "temperature"] = weather_date["hourly"]["temperature_2m"][
 				sub_data_hour_index
 			]
@@ -341,29 +354,19 @@ def add_weather_data(
 			data.loc[index, "windspeed_10m"] = weather_date["hourly"]["windspeed_10m"][
 				sub_data_hour_index
 			]
+			data.loc[index, "sum_pollen"] = pollen_date_hours_dict[date][sub_data_hour_index]
 
-			pollen_sum = 0
-			for key in pollen_date["hourly"].keys():
-				if key != "time":
-					pollen_sum += (
-						pollen_date["hourly"][key][sub_data_hour_index]
-						if pollen_date["hourly"][key][sub_data_hour_index] != None
-						else 0
-					)
-
-			data.loc[index, "sum_pollen"] = pollen_sum
-
+		print("Done one sub set !")
+			
 	print(data.head())
-
+	print("writing ...")
 	data.to_csv("ar41_with_weather.csv", sep=";", index=False)
 
 
 if __name__ == "__main__":
-	data = pd.read_csv("ar41_for_ulb_dropped.csv", delimiter=";", parse_dates=True)
+	data = pd.read_csv("ar41_for_ulb_dropped.csv", delimiter=";", parse_dates=True, index_col='timestamps_UTC')
 	data = data.drop(["Unnamed: 0"], axis=1)
 	print(data.head())
-	data["timestamps_UTC"] = pd.to_datetime(data["timestamps_UTC"])
-	data.head()
-	get_weather_data(date_list)
+	# get_weather_data(date_list)
 	add_weather_data(date_list, data)
 	print("Done !")
