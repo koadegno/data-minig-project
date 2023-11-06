@@ -339,10 +339,6 @@ def add_weather_data(
 		file = open(weather_data_filename)
 		weather_date = json.load(file)
 
-		print(f"Current date {date}")
-		sub_data = data.loc[date]
-		print(f"Sub data according to data \n{sub_data}")
-
 		for index in sub_data.index.to_list():
 			sub_data_hour_index = index.hour
 			data.loc[index, "temperature"] = weather_date["hourly"]["temperature_2m"][
@@ -356,17 +352,25 @@ def add_weather_data(
 			]
 			data.loc[index, "sum_pollen"] = pollen_date_hours_dict[date][sub_data_hour_index]
 
-		print("Done one sub set !")
-			
-	print(data.head())
-	print("writing ...")
-	data.to_csv("ar41_with_weather.csv", sep=";", index=False)
+	# print(data.head())
+	# print("writing ...")
+	# data.to_csv("ar41_with_weather.csv", sep=";", index=False)
+	return data
 
 
 if __name__ == "__main__":
-	data = pd.read_csv("ar41_for_ulb_dropped.csv", delimiter=";", parse_dates=True, index_col='timestamps_UTC')
-	data = data.drop(["Unnamed: 0"], axis=1)
-	print(data.head())
-	# get_weather_data(date_list)
-	add_weather_data(date_list, data)
+	counter = 0
+	chuck_folder = Path("chucks")
+	for chuck in pd.read_csv("ar41_for_ulb_dropped.csv", delimiter=";", parse_dates=True, index_col='timestamps_UTC', chunksize=100000):
+
+		chuck.drop(["Unnamed: 0"], axis=1, inplace=True)
+		print(chuck.head())
+		# get_weather_data(date_list)
+		chuck = add_weather_data(date_list, chuck)
+		chuck_filename = chuck_folder / f"chuck_{counter}.csv"
+		print(f"Writing chucks {counter}")
+		chuck.to_csv(chuck_filename, sep=";")
+		counter += 1
+
+
 	print("Done !")
