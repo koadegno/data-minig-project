@@ -338,6 +338,8 @@ def add_weather_data(
 		weather_data_filename = weather_data_folder / (date + "weather.json")
 		file = open(weather_data_filename)
 		weather_date = json.load(file)
+		sub_data = data.loc[date]
+		
 
 		for index in sub_data.index.to_list():
 			sub_data_hour_index = index.hour
