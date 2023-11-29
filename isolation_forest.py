@@ -1,45 +1,48 @@
-mport random
+import random
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 from sklearn.ensemble import IsolationForest
+from sklearn.inspection import DecisionBoundaryDisplay
 from sklearn.metrics import make_scorer, roc_auc_score
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import RobustScaler
-from time import perf_counter
+from time import perf_counter, time
 
 
-def get_data():
+def get_data(chunks_stop=None):
     chunks = []
-    chuncks_folder = Path("chucks")
+    chunks_folder = Path("chucks")
 
     print("Gathering dataset")
-    for chunck in chuncks_folder.iterdir():
-        print(chunck)
+    chunks_counter = 1
+    if chunks_stop is None:
+        chunks_stop = -1
+
+    for chunk in chunks_folder.iterdir():
+        print(chunk)
         chunks.append(
-            pd.read_csv(chunck, sep=";", parse_dates=True, index_col="timestamps_UTC")
+            pd.read_csv(chunk, sep=";", parse_dates=True, index_col="timestamps_UTC")
         )
-        break
+        if chunks_counter == chunks_stop:
+            break
+        chunks_counter += 1
 
     data = pd.concat(chunks)
     print(data.head())
     return data
 
 
-# plotting
-
-print("running PLot")
-
-
 def plot_clustering_results(
     features_list,
     X_train,
     result,
+    model,
     png_filename="outlier_detection_plot_isolation_forest",
 ):
     num_columns = X_train.shape[1]
@@ -49,28 +52,34 @@ def plot_clustering_results(
             ax = axes[i, j]
             if i == j:
                 ax.hist(X_train[:, i], bins=50, color="skyblue", alpha=0.7)
-                ax.set_xlabel(f"Feature {features_list[i]}")
+                ax.set_xlabel(f"{features_list[i]}")
                 ax.set_ylabel("Frequency")
             else:
                 ax.scatter(X_train[:, j], X_train[:, i], s=3, color="blue", alpha=0.5)
                 outliers_i = X_train[result == -1][:, i]
                 outliers_j = X_train[result == -1][:, j]
-                ax.scatter(outliers_j, outliers_i, s=20, color="red", alpha=0.5)
-                ax.set_xlabel(f"Feature {features_list[j]}")
-                ax.set_ylabel(f"Feature {features_list[i]}")
-    fig.legend(["Inliers", "Outliers"], loc="upper right")
+                ax.scatter(outliers_j, outliers_i, s=3, color="orange", alpha=0.3)
+                ax.set_xlabel(f"{features_list[j]}")
+                ax.set_ylabel(f"{features_list[i]}")
+    fig.legend(["", "Inliers", "Outliers"], loc="upper right")
 
     for i in range(num_columns):
         axes[num_columns - 1, i].set_xlabel(f"Feature {features_list[i]}")
-        axes[i, 0].set_ylabel(f"Feature {features_list[i]}")
+        axes[i, 0].set_ylabel(f"{features_list[i]}")
 
     plt.tight_layout()
     plt.savefig(png_filename)
+
+    display = DecisionBoundaryDisplay.from_estimator(
+        model, X_train, alpha=0.7, fill=False
+    )
+    plt.figure(figsize=(8, 6))
+    display.plot(ax=plt.gca(), X_train=X_train)
+    plt.savefig("decision_boundary_plot.png")
     print("Plot done!")
     # plt.show()
 
 
-# Add the outlier predictions to the original DataFrame
 def generate_2d_plot(X_train, result):
     outliers_train = X_train[result == -1]
     inliers_train = X_train[result == 1]
@@ -90,11 +99,11 @@ def generate_2d_plot(X_train, result):
     plt.show()
 
 
-def perform_grid_search(df: pd.DataFrame, X_train, clf, param_grid, num_iterations=10):
-    num_iterations = 10
+def perform_grid_search(df: pd.DataFrame, X_train, param_grid, num_iterations=10):
     results_folder = Path("results")
     results_folder.mkdir(exist_ok=True)
     for i in range(num_iterations):
+        print(f"cluster_{i}")
         # Choix aléatoire des paramètres
         params = {param: random.choice(values) for param, values in param_grid.items()}
         result_filename = (
@@ -116,23 +125,34 @@ def perform_grid_search(df: pd.DataFrame, X_train, clf, param_grid, num_iteratio
 
         result_filename_img = results_folder / result_filename_img
         result_filename_csv = results_folder / result_filename_csv
-        # Création du modèle avec les paramètres choisis
-        clf = IsolationForest(**params, n_jobs=-1)
 
-        # Fit du modèle et prédiction sur les données d'entraînement
+        # Création du modèle avec les paramètres choisis
+        clf = IsolationForest(**params, n_jobs=-1, max_samples="auto")
+        start_time = time()
         result = clf.fit_predict(X_train)
+        end_time = time()
+        print(f"Prediction time : {round(end_time - start_time, 2)} s")
 
         plot_clustering_results(features_list, X_train, result, result_filename_img)
+        print("Done ploting result")
 
         df[f"cluster_{i}"] = result
+        df[f"cluster_{i}"] = df[f"cluster_{i}"].astype("category")
+
+        if num_iterations == 1:
+            df.to_csv(
+                results_folder / "cluster_{i}_ar41_with_isolation_forest_cluster.csv"
+            )
+            print("Done saving clustered csv")
+
         cluster_means = df.groupby(f"cluster_{i}").mean()
-        print(f"Cluster Means for {params}:")
-        print(cluster_means.head())
         cluster_means.to_csv(result_filename_csv)
 
         count_feature_usage(
             clf, results_folder / Path(f"cluster_{i}_most_used_features.csv")
         )
+        print("Done ploting count feature")
+
     return df
 
 
@@ -190,7 +210,7 @@ def count_feature_usage(clf, filename=Path("most_used_features.csv")):
     plt.tight_layout()
 
     # Save the pie plot as an image
-    name = "pie_plot_most_used_features_" + str(filename.name).split(".")[0] + ".png"
+    name = str(filename.name).split(".")[0] + "_pie_plot_most_used_features.png"
     plot_filename = filename.with_name(name)
     plt.savefig(plot_filename)
 
@@ -201,7 +221,7 @@ def count_feature_usage(clf, filename=Path("most_used_features.csv")):
 
 
 if __name__ == "__main__":
-    df = get_data()
+    df = get_data(chunks_stop=1)
     features_list = [
         "RS_E_InAirTemp_PC1",
         "RS_E_InAirTemp_PC2",
@@ -234,36 +254,22 @@ if __name__ == "__main__":
     print(f"split on :{train_split}")
 
     # clustering model
-
     preprocessor = RobustScaler()
     X_train_normalized = preprocessor.fit_transform(X_train)
-    clf = IsolationForest(
-        n_estimators=100,
-        contamination=0.05,
-        n_jobs=-1,
-    )
-
     param_grid = {
-        "n_estimators": [50, 100, 150, 200],
+        "n_estimators": [50, 100, 150, 200, 400, 500],
         "contamination": [0.01, 0.05, 0.1, 0.2],
-        "max_samples": [50, 100, 200, "auto"],
-        "max_features": [2, 4, 6, len(features_list)],
     }
     df2 = data.copy()
-    df2 = perform_grid_search(
-        df2,
-        X_train_normalized,
-        clf,
-        param_grid,
-    )
+    df2 = perform_grid_search(df2, X_train_normalized, param_grid, num_iterations=1)
+
     print("Majority Vote")
     temp = df2.drop(columns=features_list)
     temp["final_cluster"] = temp.mode(axis=1)[0]
     df2["final_cluster"] = temp["final_cluster"]
     cluster_means = df2.groupby("final_cluster").mean()
-    print(f"Final Cluster Means:")
-    print(cluster_means.head())
-    cluster_means.to_csv("final_cluster_csv")
+    print("Final Cluster Means")
+    cluster_means.to_csv("results/final_cluster_csv")
 
     # df["Cluster"] = result
 
