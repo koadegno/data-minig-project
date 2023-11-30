@@ -13,6 +13,8 @@ from sklearn.neighbors import LocalOutlierFactor
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import RobustScaler
 from time import perf_counter, time
+import joblib
+from sklearn.decomposition import PCA
 
 
 def get_data(chunks_stop=None):
@@ -38,6 +40,78 @@ def get_data(chunks_stop=None):
     return data
 
 
+def plot_feature_distribution(
+    results_folder: Path, result_filename, X_train, result, features_list
+):
+    outliers_train = X_train[result == -1]
+    inliers_train = X_train[result == 1]
+    results_folder = results_folder / "features"
+    results_folder.mkdir(exist_ok=True)
+    for i, feature in enumerate(features_list):
+        plt.figure(figsize=(8, 6))
+        plt.hist(
+            inliers_train[:, i],
+            bins=50,
+            alpha=0.7,
+            color="skyblue",
+            label="Inliers",
+        )
+        plt.hist(
+            outliers_train[:, i],
+            bins=50,
+            alpha=0.7,
+            color="orange",
+            label="Outliers",
+        )
+        inliers_mean = np.mean(inliers_train[:, i])
+        inliers_median = np.median(inliers_train[:, i])
+        outliers_mean = np.mean(outliers_train[:, i])
+        outliers_median = np.median(outliers_train[:, i])
+
+        plt.axvline(
+            inliers_mean,
+            color="blue",
+            linestyle="dashed",
+            linewidth=2,
+            label=f"Inliers Mean: {inliers_mean:.2f}",
+        )
+        plt.axvline(
+            inliers_median,
+            color="blue",
+            linestyle="dotted",
+            linewidth=2,
+            label=f"Inliers Median: {inliers_median:.2f}",
+        )
+        plt.axvline(
+            outliers_mean,
+            color="red",
+            linestyle="dashed",
+            linewidth=2,
+            label=f"Outliers Mean: {outliers_mean:.2f}",
+        )
+        plt.axvline(
+            outliers_median,
+            color="red",
+            linestyle="dotted",
+            linewidth=2,
+            label=f"Outliers Median: {outliers_median:.2f}",
+        )
+        plt.xlabel(feature)
+        plt.ylabel("Frequency")
+        plt.title(f"Distribution of {feature} for Inliers and Outliers")
+        plt.legend()
+        plt.xlim(
+            inliers_train[:, i].min(), outliers_train[:, i].max()
+        )  # Adjust the x-axis limits
+        plt.savefig(
+            results_folder
+            / (
+                result_filename
+                + f"_Distribution of {feature} for Inliers and Outliers.png"
+            )
+        )
+
+
 def plot_clustering_results(
     features_list,
     X_train,
@@ -55,10 +129,10 @@ def plot_clustering_results(
                 ax.set_xlabel(f"{features_list[i]}")
                 ax.set_ylabel("Frequency")
             else:
-                ax.scatter(X_train[:, j], X_train[:, i], s=3, color="blue", alpha=0.5)
+                ax.scatter(X_train[:, j], X_train[:, i], s=3, color="blue", alpha=0.3)
                 outliers_i = X_train[result == -1][:, i]
                 outliers_j = X_train[result == -1][:, j]
-                ax.scatter(outliers_j, outliers_i, s=3, color="orange", alpha=0.3)
+                ax.scatter(outliers_j, outliers_i, s=3, color="orange", alpha=0.5)
                 ax.set_xlabel(f"{features_list[j]}")
                 ax.set_ylabel(f"{features_list[i]}")
     fig.legend(["", "Inliers", "Outliers"], loc="upper right")
@@ -70,12 +144,6 @@ def plot_clustering_results(
     plt.tight_layout()
     plt.savefig(png_filename)
 
-    display = DecisionBoundaryDisplay.from_estimator(
-        model, X_train, alpha=0.7, fill=False
-    )
-    plt.figure(figsize=(8, 6))
-    display.plot(ax=plt.gca(), X_train=X_train)
-    plt.savefig("decision_boundary_plot.png")
     print("Plot done!")
     # plt.show()
 
@@ -103,37 +171,50 @@ def perform_grid_search(df: pd.DataFrame, X_train, param_grid, num_iterations=10
     results_folder = Path("results")
     results_folder.mkdir(exist_ok=True)
     for i in range(num_iterations):
-        print(f"cluster_{i}")
         # Choix aléatoire des paramètres
         params = {param: random.choice(values) for param, values in param_grid.items()}
+        print(f"cluster {i} with parameters : {params}")
         result_filename = (
             str(params)
             .replace("{", "")
             .replace("}", "")
             .replace(":", "-")
             .replace(",", "_")
+            .replace("'", "")
+            .replace("-", "_")
             .replace(" ", "")
             .strip()
         )
-        result_filename = (
-            f"cluster_{i}_outlier_detection_plot_isolation_forest_"
-            + result_filename
-            + ".png"
-        )
-        result_filename_img = result_filename + ".png"
-        result_filename_csv = result_filename + ".csv"
+        result_filename = "isolation_forest_" + result_filename
+        result_filename_img = f"cluster_{i}_plot_" + result_filename + ".png"
+        result_filename_csv = f"cluster_{i}_plot_" + result_filename + ".csv"
 
         result_filename_img = results_folder / result_filename_img
         result_filename_csv = results_folder / result_filename_csv
 
         # Création du modèle avec les paramètres choisis
         clf = IsolationForest(**params, n_jobs=-1, max_samples="auto")
+
         start_time = time()
         result = clf.fit_predict(X_train)
         end_time = time()
+        joblib.dump(clf, results_folder / (result_filename + f"{i}_model.pkl"))
+        # clf = joblib.load(results_folder / (result_filename + f"{i}_model.pkl"))
         print(f"Prediction time : {round(end_time - start_time, 2)} s")
 
-        plot_clustering_results(features_list, X_train, result, result_filename_img)
+        anomaly_scores = clf.decision_function(X_train)
+
+        plot_feature_distribution(
+            results_folder, result_filename, X_train, result, features_list
+        )
+        print("Done plotting feature distibution")
+
+        plot_anomaly(results_folder, result_filename, anomaly_scores)
+        print("Done ploting anomaly")
+
+        plot_clustering_results(
+            features_list, X_train, result, clf, result_filename_img
+        )
         print("Done ploting result")
 
         df[f"cluster_{i}"] = result
@@ -141,7 +222,7 @@ def perform_grid_search(df: pd.DataFrame, X_train, param_grid, num_iterations=10
 
         if num_iterations == 1:
             df.to_csv(
-                results_folder / "cluster_{i}_ar41_with_isolation_forest_cluster.csv"
+                results_folder / f"cluster_{i}_ar41_with_isolation_forest_cluster.csv"
             )
             print("Done saving clustered csv")
 
@@ -154,6 +235,27 @@ def perform_grid_search(df: pd.DataFrame, X_train, param_grid, num_iterations=10
         print("Done ploting count feature")
 
     return df
+
+
+def plot_anomaly(results_folder, result_filename, anomaly_scores):
+    plt.figure(figsize=(8, 6))
+    plt.hist(anomaly_scores, bins="auto", density=True)
+    plt.xlabel("Anomaly Scores")
+    plt.ylabel("Density")
+    plt.title("Distribution of Anomaly Scores (Decision Function)")
+    plt.savefig(
+        results_folder / (result_filename + "_Distribution of Anomaly Scores.png")
+    )
+
+    anomaly_df = pd.DataFrame({"Anomaly_Scores": anomaly_scores}, index=data.index)
+
+    # Scatter plot anomaly scores against timestamps (index)
+    plt.figure(figsize=(10, 6))
+    plt.scatter(anomaly_df.index, anomaly_df["Anomaly_Scores"], s=5, c="red", alpha=0.5)
+    plt.xlabel("Timestamps")
+    plt.ylabel("Anomaly Scores")
+    plt.title("Anomaly Scores over Time")
+    plt.savefig(results_folder / (result_filename + "_Anomaly Scores over Time.png"))
 
 
 def count_feature_usage(clf, filename=Path("most_used_features.csv")):
@@ -221,7 +323,7 @@ def count_feature_usage(clf, filename=Path("most_used_features.csv")):
 
 
 if __name__ == "__main__":
-    df = get_data(chunks_stop=1)
+    df = get_data()
     features_list = [
         "RS_E_InAirTemp_PC1",
         "RS_E_InAirTemp_PC2",
@@ -256,20 +358,23 @@ if __name__ == "__main__":
     # clustering model
     preprocessor = RobustScaler()
     X_train_normalized = preprocessor.fit_transform(X_train)
+    pca = PCA(n_components=2)
+    X_train_pca = pca.fit_transform(X_train_normalized)
     param_grid = {
-        "n_estimators": [50, 100, 150, 200, 400, 500],
-        "contamination": [0.01, 0.05, 0.1, 0.2],
+        "n_estimators": [500],
+        # "contamination": [0.01, 0.05, 0.1, 0.2],
+        "contamination": [0.05, 0.1],
     }
     df2 = data.copy()
-    df2 = perform_grid_search(df2, X_train_normalized, param_grid, num_iterations=1)
+    df2 = perform_grid_search(df2, X_train_pca, param_grid, num_iterations=1)
 
-    print("Majority Vote")
-    temp = df2.drop(columns=features_list)
-    temp["final_cluster"] = temp.mode(axis=1)[0]
-    df2["final_cluster"] = temp["final_cluster"]
-    cluster_means = df2.groupby("final_cluster").mean()
-    print("Final Cluster Means")
-    cluster_means.to_csv("results/final_cluster_csv")
+    # print("Majority Vote")
+    # temp = df2.drop(columns=features_list)
+    # temp["final_cluster"] = temp.mode(axis=1)[0]
+    # df2["final_cluster"] = temp["final_cluster"]
+    # cluster_means = df2.groupby("final_cluster").mean()
+    # print("Final Cluster Means")
+    # cluster_means.to_csv("results/final_cluster.csv")
 
     # df["Cluster"] = result
 
