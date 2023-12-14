@@ -6,6 +6,17 @@ import seaborn as sns
 from pathlib import Path
 from tqdm import tqdm
 
+basic_colors = [
+    "g",  # green
+    "r",  # red
+    "b",  # blue
+    "c",  # cyan
+    "m",  # magenta
+    "y",  # yellow
+    "k",  # black
+    "w",  # white
+]
+
 
 def plot_feature_distribution(
     results_folder: Path,
@@ -24,16 +35,7 @@ def plot_feature_distribution(
         result (np.ndarray): The result of the classification
         features_list (List): The list of the name of each feature
     """
-    basic_colors = [
-        "b",  # blue
-        "g",  # green
-        "r",  # red
-        "c",  # cyan
-        "m",  # magenta
-        "y",  # yellow
-        "k",  # black
-        "w",  # white
-    ]
+
     results_folder.mkdir(exist_ok=True)
     results_folder = results_folder / "features"
     results_folder.mkdir(exist_ok=True)
@@ -94,3 +96,34 @@ def plot_feature_distribution(
         plt.legend()
         # plt.xlim(inliers_list[:, i].min(), outliers_list[:, i].max())  # Adjust the x-axis limits
         plt.savefig(results_folder / (result_filename + f"_Distribution of {feature} for Cluster.png"))
+
+
+def plot_clustering_results(
+    features_list,
+    data_values: np.ndarray,
+    result,
+    result_type: List[int],
+    png_filename="cluster_detection_plot",
+):
+    num_columns = data_values.shape[1]
+    num_clusters = len(result_type)
+
+    fig, axes = plt.subplots(num_columns, num_columns, figsize=(6 * num_columns, 6 * num_columns))
+
+    for i in tqdm(range(num_columns)):
+        for j in range(num_columns):
+            for k in range(num_clusters):
+                ax = axes[i, j]
+                ax.scatter(
+                    data_values[result == result_type[k]][:, j],
+                    data_values[result == result_type[k]][:, i],
+                    s=20,
+                    alpha=0.3,
+                )
+                ax.set_xlabel(f"{features_list[j]}")
+                ax.set_ylabel(f"{features_list[i]}")
+
+    fig.legend([f"Cluster {result_type[k]}" for k in range(num_clusters)], loc="upper right")
+    plt.tight_layout()
+    plt.savefig(png_filename)
+    print("Plot done!")
