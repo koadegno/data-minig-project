@@ -10,30 +10,12 @@ import plotly.tools
 import plotly.subplots
 
 
-# CSV with 'cluster' column
-# df = pd.read_csv("data_with_clusters.csv", sep=";")
-# df = pd.read_csv(
-#     "chucks\chuck_0.csv",
-#     sep=";",
-# )
-
-# df["timestamps_UTC"] = pd.to_datetime(df["timestamps_UTC"])
-# df = df[~df["timestamps_UTC"].dt.year.isin([2022])]
-
-# np.random.seed(42)
-# df["cluster"] = np.random.choice([0, 1], size=len(df), replace=True)
-'''df = pd.read_csv(
-    "results_norma\cluster_0_ar41_with_isolation_forest_cluster.csv",
-    sep=",",
-).rename(columns={"cluster_0": "cluster"})
-df["timestamps_UTC"] = pd.to_datetime(df["timestamps_UTC"])
-df = df[~df["timestamps_UTC"].dt.year.isin([2022])]'''
-
 df = pd.read_csv(
     "ar41_for_ulb_all_outliers.csv",
     sep=";",
 )
 df["timestamps_UTC"] = pd.to_datetime(df["timestamps_UTC"])
+df.fillna(0, inplace=True)
 
 thresholds = {"RS_E_InAirTemp_PC1": 65, "RS_E_InAirTemp_PC2": 65, "RS_E_WatTemp_PC1": 100, "RS_E_WatTemp_PC2": 100, "RS_T_OilTemp_PC1": 115, "RS_T_OilTemp_PC2": 115}
 
@@ -82,7 +64,7 @@ config = dbc.Card(
                 dcc.Dropdown(
                     id="reason-dropdown",
                     options=[{'label': reason, 'value': reason} for reason in df['reason'].unique()],
-                    multi=False,
+                    multi=True,
                 ),
             ]
         ),
@@ -229,11 +211,13 @@ app.layout = html.Div(
     Input("date-filter", "start_date"),
     Input("date-filter", "end_date"),
 )
-def update_graph(selected_features, selected_reason, start_date, end_date):
+def update_graph(selected_features, selected_reasons, start_date, end_date):
     # Filter df according to selected dates
     filtered_df_temp = df[(df["timestamps_UTC"] >= start_date) & (df["timestamps_UTC"] <= end_date)]
-    filtered_df = filtered_df_temp[filtered_df_temp['reason'] == selected_reason]
-
+    if selected_reasons is None:
+        filtered_df = pd.DataFrame(columns=filtered_df_temp.columns) # empty df
+    else:
+        filtered_df = filtered_df_temp[filtered_df_temp['reason'].isin(selected_reasons)]
     # Check if filtered_df is empty
     if not filtered_df.empty:
         # Create a map centered on Belgium
@@ -242,7 +226,7 @@ def update_graph(selected_features, selected_reason, start_date, end_date):
             lat="lat",
             lon="lon",
             hover_data=["mapped_veh_id"],
-            color="reason",
+            #color="reason",
             zoom=7,
             center=dict(lat=50.8503, lon=4.3517),  # Coordinates for Belgium
             title="Map",
