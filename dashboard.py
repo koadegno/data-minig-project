@@ -262,7 +262,7 @@ def update_graph(selected_features, selected_reasons, start_date, end_date):
     fig_pie_chart = px.pie(
         names=cluster_counts.index,
         values=cluster_counts.values,
-        title="Anomalies proportion",
+        title="Outliers proportion",
     )
     # Do not render subplot if there is no selected feature
     if not selected_features:
