@@ -231,8 +231,8 @@ app.layout = html.Div(
 )
 def update_graph(selected_features, selected_reason, start_date, end_date):
     # Filter df according to selected dates
-    filtered_df = df[(df["timestamps_UTC"] >= start_date) & (df["timestamps_UTC"] <= end_date)]
-    filtered_df = filtered_df[filtered_df['reason'] == selected_reason]
+    filtered_df_temp = df[(df["timestamps_UTC"] >= start_date) & (df["timestamps_UTC"] <= end_date)]
+    filtered_df = filtered_df_temp[filtered_df_temp['reason'] == selected_reason]
 
     # Check if filtered_df is empty
     if not filtered_df.empty:
@@ -272,7 +272,7 @@ def update_graph(selected_features, selected_reason, start_date, end_date):
             )
         ])
     # Cluster synth
-    cluster_counts = df["reason"].value_counts()
+    cluster_counts = filtered_df_temp["reason"].value_counts()
     fig_pie_chart = px.pie(
         names=cluster_counts.index,
         values=cluster_counts.values,
