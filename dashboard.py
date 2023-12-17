@@ -22,13 +22,18 @@ import plotly.subplots
 
 # np.random.seed(42)
 # df["cluster"] = np.random.choice([0, 1], size=len(df), replace=True)
-df = pd.read_csv(
+'''df = pd.read_csv(
     "results_norma\cluster_0_ar41_with_isolation_forest_cluster.csv",
     sep=",",
 ).rename(columns={"cluster_0": "cluster"})
 df["timestamps_UTC"] = pd.to_datetime(df["timestamps_UTC"])
-df = df[~df["timestamps_UTC"].dt.year.isin([2022])]
+df = df[~df["timestamps_UTC"].dt.year.isin([2022])]'''
 
+df = pd.read_csv(
+    "ar41_for_ulb_all_outliers.csv",
+    sep=";",
+)
+df["timestamps_UTC"] = pd.to_datetime(df["timestamps_UTC"])
 
 thresholds = {"RS_E_InAirTemp_PC1": 65, "RS_E_InAirTemp_PC2": 65, "RS_E_WatTemp_PC1": 100, "RS_E_WatTemp_PC2": 100, "RS_T_OilTemp_PC1": 115, "RS_T_OilTemp_PC2": 115}
 
@@ -70,14 +75,14 @@ config = dbc.Card(
                 ),
             ],
         ),
+        
         html.Div(
             [
-                dbc.Label("Features"),
+                dbc.Label("Reasons"),
                 dcc.Dropdown(
-                    id="variable-dropdown",
-                    options=[{"label": col, "value": col} for col in df.columns if col not in ["timestamps_UTC"]],
-                    value=["cluster"],
-                    multi=True,
+                    id="reason-dropdown",
+                    options=[{'label': reason, 'value': reason} for reason in df['reason'].unique()],
+                    multi=False,
                 ),
             ]
         ),
@@ -100,7 +105,17 @@ map = dbc.Card(
 )
 
 features_graph = dbc.Card(
-    [
+    [ 
+        html.Div(
+        [
+            dbc.Label("Features"),
+            dcc.Dropdown(
+                id="variable-dropdown",
+                options=[{"label": col, "value": col} for col in df.columns if col not in ["timestamps_UTC", "reason"]],
+                multi=True,
+            ),
+        ]
+        ),
         html.Div(
             [html.Div(id="feature-graphs")],
         ),
@@ -127,7 +142,7 @@ first_page_layout = dbc.Container(
 )
 
 
-# Création de la deuxième page avec la carte et les menus déroulants pour le suivi du véhicule
+# Creation of the second page with the map and drop-down menus for vehicle tracking
 second_page_layout = dbc.Container(
     [
         html.H1("Tracking Page", style={"text-align": "center", "color": "white"}),
@@ -152,7 +167,7 @@ second_page_layout = dbc.Container(
                             style={"width": "300px"},
                             clearable=True,
                             searchable=True,
-                            placeholder="Sélectionnez un véhicule...",
+                            placeholder="Select a vehicle...",
                         ),
                     ],
                     style={"margin-bottom": "20px", "margin-left": "20px"},
@@ -210,81 +225,83 @@ app.layout = html.Div(
     Output("cluster-pie-chart", "figure"),
     Output("feature-graphs", "children"),
     Input("variable-dropdown", "value"),
+    Input("reason-dropdown", "value"),
     Input("date-filter", "start_date"),
     Input("date-filter", "end_date"),
 )
-def update_graph(selected_variable, start_date, end_date):
-    hover = ["mapped_veh_id"]
-    hover.extend(selected_variable)
-
+def update_graph(selected_features, selected_reason, start_date, end_date):
     # Filter df according to selected dates
     filtered_df = df[(df["timestamps_UTC"] >= start_date) & (df["timestamps_UTC"] <= end_date)]
+    filtered_df = filtered_df[filtered_df['reason'] == selected_reason]
 
-    fig_map = px.scatter_mapbox(
-        filtered_df,
-        lat="lat",
-        lon="lon",
-        hover_data=hover,
-        color="cluster",
-        zoom=7,
-        title="Map",
-        opacity=0.7,
-    )
-    fig_map.update_layout(mapbox_style="open-street-map", height=565)
-
+    # Check if filtered_df is empty
+    if not filtered_df.empty:
+        # Create a map centered on Belgium
+        fig_map = px.scatter_mapbox(
+            filtered_df,
+            lat="lat",
+            lon="lon",
+            hover_data=["mapped_veh_id"],
+            color="reason",
+            zoom=7,
+            center=dict(lat=50.8503, lon=4.3517),  # Coordinates for Belgium
+            title="Map",
+            opacity=0.5,
+            mapbox_style="carto-positron",
+        )
+        fig_map.update_layout(height=565, showlegend=False)
+    else:
+        # Create an empty map with a message
+        fig_map = px.scatter_mapbox(
+            lat=[0], lon=[0],  
+            zoom=5,
+            center=dict(lat=50.8503, lon=4.3517),
+            title="Map",
+            opacity=0.5,
+            mapbox_style="carto-positron",
+        )
+        fig_map.update_layout(height=565, showlegend=False)
+        fig_map.update_layout(annotations=[
+            dict(
+                text="No data available",
+                showarrow=False,
+                xref="paper",
+                yref="paper",
+                x=0.5,
+                y=0.5
+            )
+        ])
     # Cluster synth
-    cluster_counts = filtered_df["cluster"].value_counts()
+    cluster_counts = df["reason"].value_counts()
     fig_pie_chart = px.pie(
         names=cluster_counts.index,
         values=cluster_counts.values,
         title="Anomalies proportion",
     )
     # Do not render subplot if there is no selected feature
-    if not selected_variable:
+    if not selected_features:
         return fig_map, fig_pie_chart, None
 
     # Subplots
-    # subplots = make_subplots(rows=len(selected_variable), cols=1, subplot_titles=selected_variable, row_heights=[350] * len(selected_variable))
-    # for i, var in enumerate(selected_variable):
-    #     # Create histogram with different color for each variable
-    #     hist, bins = np.histogram(filtered_df[var], bins=50)
-    #     # Cycle through Plotly colors
-    #     color = px.colors.qualitative.Plotly[i % len(px.colors.qualitative.Plotly)]
-    #     # Mean
-    #     mean_line = go.Scatter(x=[filtered_df[var].mean(), filtered_df[var].mean()], y=[0, max(hist)], mode="lines", name="Mean")
-    #     # Median
-    #     median_line = go.Scatter(x=[np.median(filtered_df[var]), np.median(filtered_df[var])], y=[0, max(hist)], mode="lines", name="Median")
-    #     # Add histogram on subplot
-    #     bar_trace = go.Bar(x=bins[:-1], y=hist, width=(bins[1] - bins[0]),color='cluster', marker=dict(color=color), name=f"{var}")
-    #     subplots.add_trace(bar_trace, row=i + 1, col=1)
-    #     # Add mean & median on subplot
-    #     subplots.add_trace(mean_line, row=i + 1, col=1)
-    #     subplots.add_trace(median_line, row=i + 1, col=1)
-    #     # Add Y-axis label
-    #     subplots.update_yaxes(title_text="Quantity", row=i + 1, col=1)
-    #     subplots.update_layout(title_text="Features", height=350 * len(selected_variable))
-
-    subplots = make_subplots(rows=len(selected_variable), cols=1, subplot_titles=selected_variable, row_heights=[350] * len(selected_variable))
-
-    for i, var in enumerate(selected_variable):
-        fig = px.histogram(
-            filtered_df,
-            x=var,
-            color="cluster",
-            title=f"Distribution of {var} by Clusters",
-            nbins=50,  # Number of bins in the histogram
-            opacity=0.7,  # Adjust the transparency
-        )
-
-        # Add histograms to subplots
-        for data in fig.data:
-            subplots.add_trace(data, row=i + 1, col=1)
-
+    subplots = make_subplots(rows=len(selected_features), cols=1, subplot_titles=selected_features, row_heights=[350] * len(selected_features))
+    for i, var in enumerate(selected_features):
+        # Create histogram with different color for each variable
+        hist, bins = np.histogram(filtered_df[var], bins=50)
+        # Cycle through Plotly colors
+        color = px.colors.qualitative.Plotly[i % len(px.colors.qualitative.Plotly)]  
+        # Mean
+        mean_line = go.Scatter(x=[filtered_df[var].mean(), filtered_df[var].mean()], y=[0, max(hist)], mode="lines", name="Mean")
+        # Median
+        median_line = go.Scatter(x=[np.median(filtered_df[var]), np.median(filtered_df[var])], y=[0, max(hist)], mode="lines", name="Median")
+        # Add histogram on subplot
+        bar_trace = go.Bar(x=bins[:-1], y=hist, width=(bins[1]-bins[0]), marker=dict(color=color), name=f"{var}")
+        subplots.add_trace(bar_trace, row=i+1, col=1)
+        # Add mean & median on subplot
+        subplots.add_trace(mean_line, row=i+1, col=1)
+        subplots.add_trace(median_line, row=i+1, col=1)
         # Add Y-axis label
-        subplots.update_yaxes(title_text="Quantity", row=i + 1, col=1)
-
-    subplots.update_layout(title_text="Features", height=350 * len(selected_variable))
-
+        subplots.update_yaxes(title_text="Quantity", row=i+1, col=1)
+        subplots.update_layout(title_text="Features", height=350 * len(selected_features))
     return fig_map, fig_pie_chart, dcc.Graph(figure=subplots)
 
 
@@ -305,7 +322,7 @@ def update_tracking_map(date_1, vehicle_1, date_2, vehicle_2):
         lon="lon",
         hover_data={"timestamps_UTC": True},
         custom_data=["timestamps_UTC"],
-        mapbox_style="open-street-map",
+        mapbox_style="carto-positron",
         color_discrete_sequence=[TRAIN_1_COLOR],
         zoom=10,
         opacity=0.6,
@@ -318,7 +335,7 @@ def update_tracking_map(date_1, vehicle_1, date_2, vehicle_2):
             lon="lon",
             hover_data={"timestamps_UTC": True},
             custom_data=["timestamps_UTC"],
-            mapbox_style="open-street-map",
+            mapbox_style="carto-positron",
             color_discrete_sequence=[TRAIN_2_COLOR],
             zoom=10,
         ).data[0]
