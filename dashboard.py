@@ -16,6 +16,8 @@ df = pd.read_csv(
 )
 df["timestamps_UTC"] = pd.to_datetime(df["timestamps_UTC"])
 df.fillna(0, inplace=True)
+if "Unnamed: 0" in df.columns:
+    df = df.drop("Unnamed: 0", axis=1)
 
 thresholds = {"RS_E_InAirTemp_PC1": 65, "RS_E_InAirTemp_PC2": 65, "RS_E_WatTemp_PC1": 100, "RS_E_WatTemp_PC2": 100, "RS_T_OilTemp_PC1": 115, "RS_T_OilTemp_PC2": 115}
 
